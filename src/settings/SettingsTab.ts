@@ -84,6 +84,20 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
             text: this.plugin.t('settingHotkeyNote'),
             cls: 'setting-item-description'
         });
+
+        new Setting(containerEl)
+            .setName(this.plugin.t('settingMaxResultsName'))
+            .setDesc(this.plugin.t('settingMaxResultsDesc'))
+            .addText(text => text
+                .setPlaceholder('50')
+                .setValue(String(this.plugin.settings.maxSearchResults))
+                .onChange(async (value) => {
+                    const num = parseInt(value);
+                    if (!isNaN(num) && num >= 1 && num <= 200) {
+                        this.plugin.settings.maxSearchResults = num;
+                        await this.plugin.saveSettings();
+                    }
+                }));
     }
 
     startRecording(inputEl: HTMLInputElement, buttonEl: HTMLButtonElement) {

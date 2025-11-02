@@ -2,10 +2,48 @@ import { App, MarkdownRenderer, TFile } from 'obsidian';
 import type GlobalSearchPlugin from '../main';
 import { SearchService } from './SearchService';
 
+// Type definitions for Electron API (since we can't import directly in Obsidian plugin)
+interface ElectronBrowserWindow {
+    loadURL(url: string): Promise<void>;
+    on(event: string, callback: (...args: any[]) => void): void;
+    close(): void;
+    isDestroyed(): boolean;
+    setSize(width: number, height: number): void;
+    show(): void;
+    focus(): void;
+}
+
+interface ElectronGlobalShortcut {
+    register(accelerator: string, callback: () => void): boolean;
+    unregister(accelerator: string): void;
+}
+
+interface ElectronIpcMainEvent {
+    reply(channel: string, ...args: any[]): void;
+}
+
+interface ElectronIpcMain {
+    on(channel: string, listener: (event: ElectronIpcMainEvent, ...args: any[]) => void): void;
+    removeHandler(channel: string): void;
+    removeAllListeners(channel: string): void;
+}
+
+interface ElectronWithRemote {
+    remote?: {
+        BrowserWindow: new (options: any) => ElectronBrowserWindow;
+        globalShortcut: ElectronGlobalShortcut;
+        getCurrentWindow: () => ElectronBrowserWindow;
+        ipcMain?: ElectronIpcMain;
+    };
+    BrowserWindow?: new (options: any) => ElectronBrowserWindow;
+    globalShortcut?: ElectronGlobalShortcut;
+    ipcMain?: ElectronIpcMain;
+}
+
 export class ElectronService {
-    private electron: any = null;
-    private globalShortcut: any = null;
-    private searchWindow: any = null;
+    private electron: ElectronWithRemote | null = null;
+    private globalShortcut: ElectronGlobalShortcut | null = null;
+    private searchWindow: ElectronBrowserWindow | null = null;
     private registeredHotkey: string | null = null;
     private searchService: SearchService;
 
@@ -16,8 +54,8 @@ export class ElectronService {
     initialize() {
         setTimeout(() => {
             try {
-                // @ts-ignore
-                const electron = (window as any).require?.('electron');
+                const windowWithRequire = window as any;
+                const electron = windowWithRequire.require?.('electron');
                 if (electron) {
                     this.electron = electron;
                     this.globalShortcut = electron.remote?.globalShortcut ||
@@ -122,6 +160,16 @@ export class ElectronService {
             return false;
         }
 
+        // Get the plugin directory path for preload script
+        // In Obsidian, we need to use the app's vault adapter to get the plugin path
+        const manifest = this.plugin.manifest as any;
+        const adapter = this.app.vault.adapter as any;
+        const basePath = adapter.getBasePath ? adapter.getBasePath() : '';
+        const pluginDir = manifest.dir || `.obsidian/plugins/${this.plugin.manifest.id}`;
+        const preloadPath = basePath ? `${basePath}/${pluginDir}/preload.js` : '';
+
+        console.log('Preload path:', preloadPath); // Debug log
+
         this.searchWindow = new BrowserWindow({
             width: 1100,
             height: 600,
@@ -132,12 +180,13 @@ export class ElectronService {
             resizable: false,
             center: true,
             webPreferences: {
-                // NOTE: These settings are required for Obsidian's Electron environment
-                // to enable IPC communication and local content rendering.
-                // The window only loads trusted local content (HTML we generate).
-                nodeIntegration: true,        // Required for IPC in Obsidian
-                contextIsolation: false,      // Required for direct IPC access
-                webSecurity: false,           // Required for data: URIs and image loading
+                // Security: Use contextIsolation and preload script for secure IPC
+                // This prevents direct access to Node.js and exposes only required APIs
+                preload: preloadPath,
+                contextIsolation: true,       // Isolate context for security
+                nodeIntegration: false,       // Disabled in renderer for security
+                webSecurity: false,           // Required for data: URIs and local image loading
+                sandbox: false,               // Required for preload script to work
             }
         });
 
@@ -161,12 +210,25 @@ export class ElectronService {
     }
 
     private arrayBufferToBase64(buffer: ArrayBuffer): string {
-        let binary = '';
+        // Use native Buffer.from for better performance (non-blocking)
+        // This is more efficient than manual string concatenation
         const bytes = new Uint8Array(buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
+
+        // Use Buffer API which is optimized in Node.js/Electron
+        if (typeof Buffer !== 'undefined') {
+            return Buffer.from(bytes).toString('base64');
         }
+
+        // Fallback to btoa for browser environments (shouldn't happen in Electron)
+        let binary = '';
+        const len = bytes.byteLength;
+        const chunkSize = 8192; // Process in chunks to avoid blocking
+
+        for (let i = 0; i < len; i += chunkSize) {
+            const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+            binary += String.fromCharCode(...chunk);
+        }
+
         return btoa(binary);
     }
 
@@ -183,7 +245,7 @@ export class ElectronService {
         // IPC Handlers - using .on() for compatibility with ipcRenderer.send()
 
         // Handler: Open file in Obsidian
-        ipcMain.on('open-file', async (_event: any, filePath: string) => {
+        ipcMain.on('open-file', async (_event, filePath: string) => {
             // Validate file path to prevent path traversal
             if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
                 console.error('Invalid file path');
@@ -200,16 +262,17 @@ export class ElectronService {
         });
 
         // Handler: Resize window
-        ipcMain.on('resize-window', (_event: any, width: number, height: number) => {
+        ipcMain.on('resize-window', (_event, width: number, height: number) => {
             if (this.searchWindow && !this.searchWindow.isDestroyed()) {
                 this.searchWindow.setSize(width, height);
             }
         });
 
         // Handler: Search content
-        ipcMain.on('search-content', async (event: any, query: string) => {
+        ipcMain.on('search-content', async (event, query: string) => {
             try {
-                const results = await this.searchService.searchInFiles(query);
+                const maxResults = this.plugin.settings.maxSearchResults || 50;
+                const results = await this.searchService.searchInFiles(query, maxResults);
                 event.reply('search-results', results);
             } catch (e) {
                 console.error('Search error:', e);
@@ -218,7 +281,7 @@ export class ElectronService {
         });
 
         // Handler: Get recent files
-        ipcMain.on('get-recent-files', async (event: any) => {
+        ipcMain.on('get-recent-files', async (event) => {
             try {
                 const recentPaths = this.app.workspace.getLastOpenFiles();
                 const recentFiles = [];
@@ -243,7 +306,7 @@ export class ElectronService {
         });
 
         // Handler: Get file preview with images
-        ipcMain.on('get-file-preview', async (event: any, filePath: string) => {
+        ipcMain.on('get-file-preview', async (event, filePath: string) => {
             // Validate file path
             if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
                 console.error('Invalid file path');

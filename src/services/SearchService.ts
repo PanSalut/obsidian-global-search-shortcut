@@ -1,4 +1,5 @@
 import { App, TFile } from 'obsidian';
+import Fuse from 'fuse.js';
 
 export interface SearchResult {
     path: string;
@@ -7,77 +8,111 @@ export interface SearchResult {
     snippet: string;
 }
 
+interface FileIndex {
+    path: string;
+    name: string;
+    basename: string;
+}
+
 export class SearchService {
+    private fileIndex: Fuse<FileIndex> | null = null;
+    private lastIndexUpdate: number = 0;
+    private readonly INDEX_UPDATE_INTERVAL = 5000; // 5 seconds
+
     constructor(private app: App) {}
 
-    async searchInFiles(query: string): Promise<SearchResult[]> {
+    private updateFileIndex(): void {
+        const now = Date.now();
+        if (this.fileIndex && (now - this.lastIndexUpdate) < this.INDEX_UPDATE_INTERVAL) {
+            return; // Use cached index
+        }
+
+        const files = this.app.vault.getMarkdownFiles();
+        const fileData: FileIndex[] = files.map(file => ({
+            path: file.path,
+            name: file.name,
+            basename: file.basename
+        }));
+
+        this.fileIndex = new Fuse(fileData, {
+            keys: [
+                { name: 'basename', weight: 2 },
+                { name: 'path', weight: 1 }
+            ],
+            threshold: 0.4,
+            includeScore: true,
+            minMatchCharLength: 1,
+            ignoreLocation: true
+        });
+
+        this.lastIndexUpdate = now;
+    }
+
+    async searchInFiles(query: string, limit: number = 50): Promise<SearchResult[]> {
         if (!query || query.length < 1) {
             return [];
         }
 
-        const files = this.app.vault.getMarkdownFiles();
+        this.updateFileIndex();
+
         const results: SearchResult[] = [];
         const queryLower = query.toLowerCase();
 
-        for (const file of files) {
-            try {
-                const nameScore = this.advancedFuzzyMatch(queryLower, file.basename.toLowerCase());
+        // Search by filename using Fuse.js (fast)
+        if (this.fileIndex) {
+            const filenameResults = this.fileIndex.search(query);
 
-                if (nameScore > 0) {
+            for (const result of filenameResults.slice(0, limit)) {
+                const file = this.app.vault.getAbstractFileByPath(result.item.path);
+                if (file instanceof TFile) {
                     results.push({
                         path: file.path,
                         name: file.basename,
-                        score: nameScore * 1000,
+                        score: (1 - (result.score || 0)) * 1000, // Convert Fuse score to our format
                         snippet: ''
                     });
-                    continue;
+                }
+            }
+        }
+
+        // Search in file content (parallel processing for better performance)
+        const files = this.app.vault.getMarkdownFiles();
+        const contentSearchPromises = files.map(async (file) => {
+            try {
+                // Skip if already found by filename search
+                if (results.some(r => r.path === file.path)) {
+                    return null;
                 }
 
                 const content = await this.app.vault.cachedRead(file);
                 const contentLower = content.toLowerCase();
-
                 const index = contentLower.indexOf(queryLower);
+
                 if (index !== -1) {
                     const snippet = this.getContextSnippet(content, index, query);
-                    results.push({
+                    return {
                         path: file.path,
                         name: file.basename,
                         score: 100,
                         snippet: snippet
-                    });
+                    };
                 }
+                return null;
             } catch (e) {
-                // Skip files with errors
+                console.error(`Error searching in file ${file.path}:`, e);
+                return null;
             }
-        }
+        });
+
+        const contentResults = await Promise.all(contentSearchPromises);
+        results.push(...contentResults.filter((r): r is SearchResult => r !== null));
 
         return results
             .sort((a, b) => b.score - a.score)
-            .slice(0, 50);
+            .slice(0, limit);
     }
 
-    advancedFuzzyMatch(query: string, text: string): number {
-        if (text === query) return 1000;
-        if (text.startsWith(query)) return 900;
-        if (text.includes(query)) return 800;
-
-        let score = 0;
-        let queryIdx = 0;
-        let lastMatchIdx = -1;
-
-        for (let i = 0; i < text.length && queryIdx < query.length; i++) {
-            if (text[i] === query[queryIdx]) {
-                const gap = i - lastMatchIdx;
-                score += gap === 1 ? 10 : 5;
-                lastMatchIdx = i;
-                queryIdx++;
-            }
-        }
-
-        return queryIdx === query.length ? score : 0;
-    }
-
-    getContextSnippet(content: string, matchIndex: number, query: string): string {
+    private getContextSnippet(content: string, matchIndex: number, query: string): string {
         let lineStart = matchIndex;
         while (lineStart > 0 && content[lineStart - 1] !== '\n') {
             lineStart--;
@@ -93,39 +128,6 @@ export class SearchService {
         let snippet = content.substring(start, end);
 
         snippet = snippet.replace(/\n+/g, ' ').trim();
-
-        if (start > 0) snippet = '...' + snippet;
-        if (end < content.length) snippet = snippet + '...';
-
-        return snippet;
-    }
-
-    fuzzyMatch(pattern: string, str: string): number {
-        let patternIdx = 0;
-        let strIdx = 0;
-        let score = 0;
-
-        while (patternIdx < pattern.length && strIdx < str.length) {
-            if (pattern[patternIdx] === str[strIdx]) {
-                score += 1;
-                patternIdx++;
-            }
-            strIdx++;
-        }
-
-        return patternIdx === pattern.length ? score : 0;
-    }
-
-    getSnippet(content: string, query: string): string {
-        const lowerContent = content.toLowerCase();
-        const lowerQuery = query.toLowerCase();
-        const index = lowerContent.indexOf(lowerQuery);
-
-        if (index === -1) return '';
-
-        const start = Math.max(0, index - 40);
-        const end = Math.min(content.length, index + query.length + 40);
-        let snippet = content.substring(start, end);
 
         if (start > 0) snippet = '...' + snippet;
         if (end < content.length) snippet = snippet + '...';

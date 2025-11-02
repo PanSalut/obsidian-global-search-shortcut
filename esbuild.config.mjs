@@ -12,7 +12,7 @@ if you want to view the source, please visit the github repository of this plugi
 const prod = (process.argv[2] === "production");
 
 // Main plugin build
-const context = await esbuild.context({
+const mainContext = await esbuild.context({
 	banner: {
 		js: banner,
 	},
@@ -41,9 +41,28 @@ const context = await esbuild.context({
 	outfile: "main.js",
 });
 
+// Preload script build
+const preloadContext = await esbuild.context({
+	banner: {
+		js: banner,
+	},
+	entryPoints: ["src/preload.ts"],
+	bundle: true,
+	external: ["electron"],
+	format: "cjs",
+	target: "es2018",
+	logLevel: "info",
+	sourcemap: prod ? false : "inline",
+	treeShaking: true,
+	outfile: "preload.js",
+	platform: "node",
+});
+
 if (prod) {
-	await context.rebuild();
+	await mainContext.rebuild();
+	await preloadContext.rebuild();
 	process.exit(0);
 } else {
-	await context.watch();
+	await mainContext.watch();
+	await preloadContext.watch();
 }

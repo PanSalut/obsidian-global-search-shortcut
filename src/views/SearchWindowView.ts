@@ -355,8 +355,12 @@ export class SearchWindowView {
 
     <script>
         try {
-            const electron = window.require ? window.require('electron') : require('electron');
-            const { ipcRenderer } = electron;
+            // Use secure API exposed through preload script
+            if (!window.electronAPI) {
+                throw new Error('Electron API not available. Preload script may not have loaded correctly.');
+            }
+
+            const api = window.electronAPI;
             let selectedIndex = 0;
             let currentResults = [];
 
@@ -366,17 +370,28 @@ export class SearchWindowView {
             const previewTitle = document.getElementById('previewTitle');
             const previewContent = document.getElementById('previewContent');
 
-        ipcRenderer.on('search-results', (event, results) => {
+        // Escape HTML to prevent XSS attacks
+        function escapeHtml(unsafe) {
+            if (typeof unsafe !== 'string') return '';
+            return unsafe
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        api.onSearchResults((results) => {
             currentResults = results;
             displayResults(results);
         });
 
-        ipcRenderer.on('recent-files', (event, results) => {
+        api.onRecentFiles((results) => {
             currentResults = results;
             displayResults(results);
         });
 
-        ipcRenderer.on('file-preview', (event, data) => {
+        api.onFilePreview((data) => {
             const html = data.html || '<div class="preview-empty">${t.noContent}</div>';
             const imageData = data.imageData || {};
 
@@ -394,9 +409,10 @@ export class SearchWindowView {
         });
 
         function showPreview(filePath, fileName) {
+            // Use textContent instead of innerHTML to prevent XSS
             previewTitle.textContent = fileName;
             previewContent.innerHTML = '<div class="preview-loading">${t.loading}</div>';
-            ipcRenderer.send('get-file-preview', filePath);
+            api.getFilePreview(filePath);
         }
 
         function hidePreview() {
@@ -414,8 +430,8 @@ export class SearchWindowView {
 
             resultsDiv.innerHTML = matches
                 .map((f, idx) =>
-                    \`<div class="result-item \${idx === selectedIndex ? 'selected' : ''}" data-path="\${f.path}" data-index="\${idx}" data-name="\${f.name}">
-                        <div class="result-title">\${f.name}</div>
+                    \`<div class="result-item \${idx === selectedIndex ? 'selected' : ''}" data-path="\${escapeHtml(f.path)}" data-index="\${idx}" data-name="\${escapeHtml(f.name)}">
+                        <div class="result-title">\${escapeHtml(f.name)}</div>
                     </div>\`
                 )
                 .join('');
@@ -425,7 +441,7 @@ export class SearchWindowView {
                     const itemIndex = parseInt(item.dataset.index);
 
                     if (itemIndex === selectedIndex) {
-                        ipcRenderer.send('open-file', item.dataset.path);
+                        api.openFile(item.dataset.path);
                     } else {
                         selectedIndex = itemIndex;
                         updateSelection();
@@ -446,13 +462,13 @@ export class SearchWindowView {
             const query = searchInput.value.trim();
 
             if (!query) {
-                ipcRenderer.send('get-recent-files');
+                api.getRecentFiles();
                 return;
             }
 
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
-                ipcRenderer.send('search-content', query);
+                api.searchContent(query);
             }, 200);
         }
 
@@ -486,19 +502,19 @@ export class SearchWindowView {
             } else if (e.key === 'Enter' && items.length > 0) {
                 e.preventDefault();
                 const selectedPath = items[selectedIndex].dataset.path;
-                ipcRenderer.send('open-file', selectedPath);
+                api.openFile(selectedPath);
             } else if (e.key === 'Escape') {
                 window.close();
             }
         });
 
-        ipcRenderer.on('reset-search', () => {
+        api.onResetSearch(() => {
             searchInput.value = '';
             updateResults();
             searchInput.focus();
         });
 
-        ipcRenderer.send('get-recent-files');
+        api.getRecentFiles();
 
         document.addEventListener('mousedown', (e) => {
             if (e.target !== searchInput) {

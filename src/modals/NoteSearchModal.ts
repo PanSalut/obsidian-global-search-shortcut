@@ -24,10 +24,9 @@ export class NoteSearchModal extends FuzzySuggestModal<TFile> {
 
     async openInNewWindow(file: TFile) {
         try {
-            // @ts-ignore
-            if (this.app.workspace.openPopoutLeaf) {
-                // @ts-ignore
-                const leaf = this.app.workspace.openPopoutLeaf();
+            const workspace = this.app.workspace as any;
+            if (workspace.openPopoutLeaf) {
+                const leaf = workspace.openPopoutLeaf();
                 await leaf.openFile(file);
                 new Notice(this.plugin.t('openedInNewWindow', file.basename));
             } else {

@@ -18,11 +18,15 @@
   "author": "PanSalut <artur@fabrykawitryn.pl>",
   "license": "MIT",
   "devDependencies": {
+    "@types/electron": "^1.4.38",
     "@types/node": "^20.11.0",
     "builtin-modules": "^3.3.0",
     "esbuild": "0.19.12",
     "obsidian": "latest",
     "tslib": "2.6.2",
     "typescript": "5.3.3"
+  },
+  "dependencies": {
+    "fuse.js": "^7.1.0"
   }
 }
