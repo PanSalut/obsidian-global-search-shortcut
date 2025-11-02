@@ -1,9 +1,9 @@
 {
-  "id": "obsidian-global-search",
+  "id": "global-search-hotkey",
   "name": "Global Search Hotkey",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "System-wide hotkey to search notes from anywhere with live preview. Multilingual: EN, PL, DE, FR",
+  "description": "System-wide hotkey to search notes from anywhere with live preview. Multilingual support.",
   "author": "PanSalut",
   "authorUrl": "https://github.com/PanSalut",
   "isDesktopOnly": true
