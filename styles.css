@@ -1,0 +1,16 @@
+/* Styles for Global Search Plugin */
+
+/* Hotkey recorder button animation */
+.is-recording {
+    animation: pulse 1.5s ease-in-out infinite;
+    background-color: var(--interactive-accent) !important;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}
