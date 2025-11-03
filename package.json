@@ -1,6 +1,6 @@
 {
   "name": "obsidian-global-search",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "Obsidian plugin with system-wide hotkey for searching notes with live preview",
   "main": "main.js",
   "scripts": {

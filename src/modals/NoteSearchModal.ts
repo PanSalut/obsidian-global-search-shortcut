@@ -1,5 +1,10 @@
-import { App, FuzzySuggestModal, Notice, TFile } from 'obsidian';
+import { App, FuzzySuggestModal, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 import type GlobalSearchPlugin from '../main';
+
+// Type definition for internal Obsidian Workspace API
+interface WorkspaceWithPopout {
+    openPopoutLeaf?: () => WorkspaceLeaf;
+}
 
 export class NoteSearchModal extends FuzzySuggestModal<TFile> {
     plugin: GlobalSearchPlugin;
@@ -24,7 +29,7 @@ export class NoteSearchModal extends FuzzySuggestModal<TFile> {
 
     async openInNewWindow(file: TFile) {
         try {
-            const workspace = this.app.workspace as any;
+            const workspace = this.app.workspace as unknown as WorkspaceWithPopout;
             if (workspace.openPopoutLeaf) {
                 const leaf = workspace.openPopoutLeaf();
                 await leaf.openFile(file);

@@ -2,6 +2,20 @@ import { App, MarkdownRenderer, TFile } from 'obsidian';
 import type GlobalSearchPlugin from '../main';
 import { SearchService } from './SearchService';
 
+// Type definitions for internal Obsidian APIs
+interface WindowWithRequire extends Window {
+    require?: (module: string) => unknown;
+}
+
+interface PluginManifestWithDir {
+    dir?: string;
+    id: string;
+}
+
+interface VaultAdapterWithBasePath {
+    getBasePath?: () => string;
+}
+
 // Type definitions for Electron API (since we can't import directly in Obsidian plugin)
 interface ElectronBrowserWindow {
     loadURL(url: string): Promise<void>;
@@ -54,12 +68,13 @@ export class ElectronService {
     initialize() {
         setTimeout(() => {
             try {
-                const windowWithRequire = window as any;
-                const electron = windowWithRequire.require?.('electron');
+                const windowWithRequire = window as WindowWithRequire;
+                const electron = windowWithRequire.require?.('electron') as ElectronWithRemote | undefined;
                 if (electron) {
                     this.electron = electron;
                     this.globalShortcut = electron.remote?.globalShortcut ||
-                                        (electron.globalShortcut);
+                                        electron.globalShortcut ||
+                                        null;
                     this.registerGlobalHotkey();
                     this.setupIpcHandler();
                 }
@@ -162,10 +177,10 @@ export class ElectronService {
 
         // Get the plugin directory path for preload script
         // In Obsidian, we need to use the app's vault adapter to get the plugin path
-        const manifest = this.plugin.manifest as any;
-        const adapter = this.app.vault.adapter as any;
+        const manifest = this.plugin.manifest as unknown as PluginManifestWithDir;
+        const adapter = this.app.vault.adapter as unknown as VaultAdapterWithBasePath;
         const basePath = adapter.getBasePath ? adapter.getBasePath() : '';
-        const pluginDir = manifest.dir || `.obsidian/plugins/${this.plugin.manifest.id}`;
+        const pluginDir = manifest.dir || `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
         const preloadPath = basePath ? `${basePath}/${pluginDir}/preload.js` : '';
 
         console.log('Preload path:', preloadPath); // Debug log
@@ -403,7 +418,16 @@ export class ElectronService {
                 }
 
                 // Reply with rendered HTML content and image data
-                const html = el.innerHTML;
+                // Use XMLSerializer for safe HTML extraction
+                const serializer = new XMLSerializer();
+                let html = '';
+                Array.from(el.childNodes).forEach(node => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        html += serializer.serializeToString(node);
+                    } else if (node.nodeType === Node.TEXT_NODE) {
+                        html += node.textContent || '';
+                    }
+                });
                 event.reply('file-preview', {
                     path: filePath,
                     content: content,

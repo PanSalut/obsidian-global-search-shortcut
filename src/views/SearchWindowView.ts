@@ -395,7 +395,13 @@ export class SearchWindowView {
             const html = data.html || '<div class="preview-empty">${t.noContent}</div>';
             const imageData = data.imageData || {};
 
-            previewContent.innerHTML = html;
+            // Use DOM API instead of innerHTML
+            const range = document.createRange();
+            range.selectNodeContents(previewContent);
+            range.deleteContents();
+
+            const fragment = range.createContextualFragment(html);
+            previewContent.appendChild(fragment);
 
             const images = previewContent.querySelectorAll('img');
 
@@ -411,30 +417,64 @@ export class SearchWindowView {
         function showPreview(filePath, fileName) {
             // Use textContent instead of innerHTML to prevent XSS
             previewTitle.textContent = fileName;
-            previewContent.innerHTML = '<div class="preview-loading">${t.loading}</div>';
+
+            // Use DOM API instead of innerHTML
+            while (previewContent.firstChild) {
+                previewContent.removeChild(previewContent.firstChild);
+            }
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'preview-loading';
+            loadingDiv.textContent = '${t.loading}';
+            previewContent.appendChild(loadingDiv);
+
             api.getFilePreview(filePath);
         }
 
         function hidePreview() {
-            previewContent.innerHTML = '<div class="preview-empty">${t.selectNote}</div>';
+            // Use DOM API instead of innerHTML
+            while (previewContent.firstChild) {
+                previewContent.removeChild(previewContent.firstChild);
+            }
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'preview-empty';
+            emptyDiv.textContent = '${t.selectNote}';
+            previewContent.appendChild(emptyDiv);
         }
 
         function displayResults(matches) {
             selectedIndex = 0;
 
+            // Clear results using DOM API
+            while (resultsDiv.firstChild) {
+                resultsDiv.removeChild(resultsDiv.firstChild);
+            }
+
             if (matches.length === 0) {
-                resultsDiv.innerHTML = '<div class="results-empty">${t.startTyping}</div>';
+                const emptyDiv = document.createElement('div');
+                emptyDiv.className = 'results-empty';
+                emptyDiv.textContent = '${t.startTyping}';
+                resultsDiv.appendChild(emptyDiv);
                 hidePreview();
                 return;
             }
 
-            resultsDiv.innerHTML = matches
-                .map((f, idx) =>
-                    \`<div class="result-item \${idx === selectedIndex ? 'selected' : ''}" data-path="\${escapeHtml(f.path)}" data-index="\${idx}" data-name="\${escapeHtml(f.name)}">
-                        <div class="result-title">\${escapeHtml(f.name)}</div>
-                    </div>\`
-                )
-                .join('');
+            // Create result items using DOM API
+            const fragment = document.createDocumentFragment();
+            matches.forEach((f, idx) => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = idx === selectedIndex ? 'result-item selected' : 'result-item';
+                itemDiv.setAttribute('data-path', f.path);
+                itemDiv.setAttribute('data-index', String(idx));
+                itemDiv.setAttribute('data-name', f.name);
+
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'result-title';
+                titleDiv.textContent = f.name;
+
+                itemDiv.appendChild(titleDiv);
+                fragment.appendChild(itemDiv);
+            });
+            resultsDiv.appendChild(fragment);
 
             document.querySelectorAll('.result-item').forEach(item => {
                 item.addEventListener('click', () => {
@@ -504,7 +544,7 @@ export class SearchWindowView {
                 const selectedPath = items[selectedIndex].dataset.path;
                 api.openFile(selectedPath);
             } else if (e.key === 'Escape') {
-                window.close();
+                api.closeWindow();
             }
         });
 
@@ -532,7 +572,15 @@ export class SearchWindowView {
 
         } catch (error) {
             console.error('Error in search window:', error);
-            document.body.innerHTML = '<div style="padding: 20px; color: red;">Error: ' + error.message + '</div>';
+            // Use DOM API instead of innerHTML
+            while (document.body.firstChild) {
+                document.body.removeChild(document.body.firstChild);
+            }
+            const errorDiv = document.createElement('div');
+            errorDiv.style.padding = '20px';
+            errorDiv.style.color = 'red';
+            errorDiv.textContent = 'Error: ' + error.message;
+            document.body.appendChild(errorDiv);
         }
     </script>
 </body>
