@@ -413,7 +413,8 @@ export class ElectronService {
 
                 for (const path of recentPaths) {
                     const file = this.app.vault.getAbstractFileByPath(path);
-                    if (file instanceof TFile) {
+                    // Only include markdown files to prevent issues with image previews
+                    if (file instanceof TFile && file.extension === 'md') {
                         recentFiles.push({
                             path: file.path,
                             name: file.basename,
@@ -443,6 +444,12 @@ export class ElectronService {
                 try {
                     const file = this.app.vault.getAbstractFileByPath(filePath);
                     if (!(file instanceof TFile)) {
+                        event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
+                        return;
+                    }
+
+                    // Only render markdown files - prevent rendering binary files like images
+                    if (file.extension !== 'md') {
                         event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
                         return;
                     }
