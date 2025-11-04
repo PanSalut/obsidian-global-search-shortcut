@@ -127,7 +127,7 @@ export class ElectronService {
     private static readonly SEARCH_WINDOW_WIDTH = 1100;
     private static readonly SEARCH_WINDOW_HEIGHT = 600;
     private static readonly BASE64_CHUNK_SIZE = 8192; // Chunk size for base64 encoding
-    private static readonly SEARCH_DEBOUNCE_MS = 200; // Wait 200ms after user stops typing
+    private static readonly SEARCH_DEBOUNCE_MS = 50; // Wait 50ms after user stops typing
 
     constructor(private app: App, private plugin: GlobalSearchPlugin) {
         this.searchService = new SearchService(app);
