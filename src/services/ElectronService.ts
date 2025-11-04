@@ -1,4 +1,4 @@
-import { App, MarkdownRenderer, TFile } from 'obsidian';
+import { App, Component, MarkdownRenderer, TFile } from 'obsidian';
 import type GlobalSearchPlugin from '../main';
 import { SearchService } from './SearchService';
 
@@ -19,7 +19,7 @@ interface VaultAdapterWithBasePath {
 // Type definitions for Electron API (since we can't import directly in Obsidian plugin)
 interface ElectronBrowserWindow {
     loadURL(url: string): Promise<void>;
-    on(event: string, callback: (...args: any[]) => void): void;
+    on(event: string, callback: (...args: unknown[]) => void): void;
     close(): void;
     isDestroyed(): boolean;
     setSize(width: number, height: number): void;
@@ -33,23 +33,41 @@ interface ElectronGlobalShortcut {
 }
 
 interface ElectronIpcMainEvent {
-    reply(channel: string, ...args: any[]): void;
+    reply(channel: string, ...args: unknown[]): void;
 }
 
 interface ElectronIpcMain {
-    on(channel: string, listener: (event: ElectronIpcMainEvent, ...args: any[]) => void): void;
+    on(channel: string, listener: (event: ElectronIpcMainEvent, ...args: unknown[]) => void): void;
     removeHandler(channel: string): void;
     removeAllListeners(channel: string): void;
 }
 
+interface BrowserWindowOptions {
+    width: number;
+    height: number;
+    frame: boolean;
+    transparent: boolean;
+    alwaysOnTop: boolean;
+    skipTaskbar: boolean;
+    resizable: boolean;
+    center: boolean;
+    webPreferences: {
+        preload: string;
+        contextIsolation: boolean;
+        nodeIntegration: boolean;
+        webSecurity: boolean;
+        sandbox: boolean;
+    };
+}
+
 interface ElectronWithRemote {
     remote?: {
-        BrowserWindow: new (options: any) => ElectronBrowserWindow;
+        BrowserWindow: new (options: BrowserWindowOptions) => ElectronBrowserWindow;
         globalShortcut: ElectronGlobalShortcut;
         getCurrentWindow: () => ElectronBrowserWindow;
         ipcMain?: ElectronIpcMain;
     };
-    BrowserWindow?: new (options: any) => ElectronBrowserWindow;
+    BrowserWindow?: new (options: BrowserWindowOptions) => ElectronBrowserWindow;
     globalShortcut?: ElectronGlobalShortcut;
     ipcMain?: ElectronIpcMain;
 }
@@ -67,21 +85,32 @@ export class ElectronService {
 
     initialize() {
         setTimeout(() => {
-            try {
-                const windowWithRequire = window as WindowWithRequire;
-                const electron = windowWithRequire.require?.('electron') as ElectronWithRemote | undefined;
-                if (electron) {
-                    this.electron = electron;
-                    this.globalShortcut = electron.remote?.globalShortcut ||
-                                        electron.globalShortcut ||
-                                        null;
-                    this.registerGlobalHotkey();
-                    this.setupIpcHandler();
-                }
-            } catch (e) {
-                // Electron API not available - fallback to Command Palette
-            }
+            void this.initializeElectron();
         }, 1000);
+    }
+
+    private async initializeElectron() {
+        try {
+            const windowWithRequire = window as WindowWithRequire;
+            // Dynamic import for Electron API (required for Obsidian plugin security)
+            const electron = await (async () => {
+                if (windowWithRequire.require) {
+                    return windowWithRequire.require('electron') as ElectronWithRemote;
+                }
+                return undefined;
+            })();
+
+            if (electron) {
+                this.electron = electron;
+                this.globalShortcut = electron.remote?.globalShortcut ||
+                                    electron.globalShortcut ||
+                                    null;
+                this.registerGlobalHotkey();
+                this.setupIpcHandler();
+            }
+        } catch {
+            // Electron API not available - fallback to Command Palette
+        }
     }
 
     cleanup() {
@@ -116,8 +145,8 @@ export class ElectronService {
             if (this.registeredHotkey) {
                 try {
                     this.globalShortcut.unregister(this.registeredHotkey);
-                } catch (e) {
-                    console.error('Error unregistering old hotkey:', e);
+                } catch {
+                    // Ignore errors when unregistering old hotkey
                 }
             }
 
@@ -182,8 +211,6 @@ export class ElectronService {
         const basePath = adapter.getBasePath ? adapter.getBasePath() : '';
         const pluginDir = manifest.dir || `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
         const preloadPath = basePath ? `${basePath}/${pluginDir}/preload.js` : '';
-
-        console.log('Preload path:', preloadPath); // Debug log
 
         this.searchWindow = new BrowserWindow({
             width: 1100,
@@ -260,7 +287,7 @@ export class ElectronService {
         // IPC Handlers - using .on() for compatibility with ipcRenderer.send()
 
         // Handler: Open file in Obsidian
-        ipcMain.on('open-file', async (_event, filePath: string) => {
+        ipcMain.on('open-file', (_event, filePath: string) => {
             // Validate file path to prevent path traversal
             if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
                 console.error('Invalid file path');
@@ -269,7 +296,7 @@ export class ElectronService {
 
             const file = this.app.vault.getAbstractFileByPath(filePath);
             if (file instanceof TFile) {
-                await this.plugin.openFileInNewWindow(file);
+                void this.plugin.openFileInNewWindow(file);
             }
             if (this.searchWindow && !this.searchWindow.isDestroyed()) {
                 this.searchWindow.close();
@@ -284,19 +311,20 @@ export class ElectronService {
         });
 
         // Handler: Search content
-        ipcMain.on('search-content', async (event, query: string) => {
-            try {
-                const maxResults = this.plugin.settings.maxSearchResults || 50;
-                const results = await this.searchService.searchInFiles(query, maxResults);
-                event.reply('search-results', results);
-            } catch (e) {
-                console.error('Search error:', e);
-                event.reply('search-results', []);
-            }
+        ipcMain.on('search-content', (event, query: string) => {
+            void (async () => {
+                try {
+                    const maxResults = this.plugin.settings.maxSearchResults || 50;
+                    const results = await this.searchService.searchInFiles(query, maxResults);
+                    event.reply('search-results', results);
+                } catch {
+                    event.reply('search-results', []);
+                }
+            })();
         });
 
         // Handler: Get recent files
-        ipcMain.on('get-recent-files', async (event) => {
+        ipcMain.on('get-recent-files', (event) => {
             try {
                 const recentPaths = this.app.workspace.getLastOpenFiles();
                 const recentFiles = [];
@@ -314,130 +342,135 @@ export class ElectronService {
                 }
 
                 event.reply('recent-files', recentFiles);
-            } catch (e) {
-                console.error('Error getting recent files:', e);
+            } catch {
                 event.reply('recent-files', []);
             }
         });
 
         // Handler: Get file preview with images
-        ipcMain.on('get-file-preview', async (event, filePath: string) => {
-            // Validate file path
-            if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
-                console.error('Invalid file path');
-                event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
-                return;
-            }
-            try {
-                const file = this.app.vault.getAbstractFileByPath(filePath);
-                if (!(file instanceof TFile)) {
+        ipcMain.on('get-file-preview', (event, filePath: string) => {
+            void (async () => {
+                // Validate file path
+                if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
+                    console.error('Invalid file path');
                     event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
                     return;
                 }
-
-                const content = await this.app.vault.cachedRead(file);
-                const el = document.createElement('div');
-                await MarkdownRenderer.render(this.app, content, el, filePath, this.plugin);
-
-                const images = el.querySelectorAll('img');
-                const imageData: Record<string, string> = {};
-
-                // Convert images to base64 data URLs (works with webSecurity: false)
-                for (const img of Array.from(images)) {
-                    const src = img.getAttribute('src');
-
-                    if (!src) continue;
-
-                    // Skip already processed images
-                    if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
-                        continue;
+                try {
+                    const file = this.app.vault.getAbstractFileByPath(filePath);
+                    if (!(file instanceof TFile)) {
+                        event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
+                        return;
                     }
 
-                    try {
-                        let imagePath = src;
+                    const content = await this.app.vault.cachedRead(file);
+                    const el = document.createElement('div');
+                    // Create a component instance for MarkdownRenderer to avoid using main plugin instance
+                    const component = new Component();
+                    await MarkdownRenderer.render(this.app, content, el, filePath, component);
 
-                        // Handle app:// protocol
-                        if (imagePath.startsWith('app://')) {
-                            const match = imagePath.match(/app:\/\/[^/]+\/(.+?)(\?.*)?$/);
-                            if (match) {
-                                imagePath = match[1];
-                            }
+                    const images = el.querySelectorAll('img');
+                    const imageData: Record<string, string> = {};
+
+                    // Convert images to base64 data URLs (works with webSecurity: false)
+                    for (const img of Array.from(images)) {
+                        const src = img.getAttribute('src');
+
+                        if (!src) continue;
+
+                        // Skip already processed images
+                        if (src.startsWith('data:') || src.startsWith('http://') || src.startsWith('https://')) {
+                            continue;
                         }
 
-                        imagePath = decodeURIComponent(imagePath);
+                        try {
+                            let imagePath = src;
 
-                        // Try to find the image file
-                        let imageFile = this.app.vault.getAbstractFileByPath(imagePath);
-
-                        // Try relative to note directory
-                        if (!imageFile) {
-                            const noteDir = filePath.substring(0, filePath.lastIndexOf('/'));
-                            if (noteDir && !imagePath.startsWith('/')) {
-                                const relativePath = noteDir + '/' + imagePath;
-                                imageFile = this.app.vault.getAbstractFileByPath(relativePath);
-                            }
-                        }
-
-                        // Try to find by filename
-                        if (!imageFile) {
-                            const fileName = imagePath.split('/').pop();
-                            if (fileName) {
-                                const allFiles = this.app.vault.getFiles();
-                                const foundByName = allFiles.find(f => f.name === fileName);
-                                if (foundByName) {
-                                    imageFile = foundByName;
+                            // Handle app:// protocol
+                            if (imagePath.startsWith('app://')) {
+                                const match = imagePath.match(/app:\/\/[^/]+\/(.+?)(\?.*)?$/);
+                                if (match) {
+                                    imagePath = match[1];
                                 }
                             }
-                        }
 
-                        // Convert to base64 data URL
-                        if (imageFile instanceof TFile) {
-                            const arrayBuffer = await this.app.vault.readBinary(imageFile);
-                            const base64 = this.arrayBufferToBase64(arrayBuffer);
+                            imagePath = decodeURIComponent(imagePath);
 
-                            const extension = imageFile.extension.toLowerCase();
-                            let mimeType = 'image/png';
-                            if (extension === 'jpg' || extension === 'jpeg') {
-                                mimeType = 'image/jpeg';
-                            } else if (extension === 'gif') {
-                                mimeType = 'image/gif';
-                            } else if (extension === 'svg') {
-                                mimeType = 'image/svg+xml';
-                            } else if (extension === 'webp') {
-                                mimeType = 'image/webp';
-                            } else if (extension === 'bmp') {
-                                mimeType = 'image/bmp';
+                            // Try to find the image file
+                            let imageFile = this.app.vault.getAbstractFileByPath(imagePath);
+
+                            // Try relative to note directory
+                            if (!imageFile) {
+                                const noteDir = filePath.substring(0, filePath.lastIndexOf('/'));
+                                if (noteDir && !imagePath.startsWith('/')) {
+                                    const relativePath = noteDir + '/' + imagePath;
+                                    imageFile = this.app.vault.getAbstractFileByPath(relativePath);
+                                }
                             }
 
-                            const dataUrl = `data:${mimeType};base64,${base64}`;
-                            imageData[src] = dataUrl;
-                        }
-                    } catch (e) {
-                        console.error('Error processing image:', src, e);
-                    }
-                }
+                            // Try to find by filename
+                            if (!imageFile) {
+                                const fileName = imagePath.split('/').pop();
+                                if (fileName) {
+                                    const allFiles = this.app.vault.getFiles();
+                                    const foundByName = allFiles.find(f => f.name === fileName);
+                                    if (foundByName) {
+                                        imageFile = foundByName;
+                                    }
+                                }
+                            }
 
-                // Reply with rendered HTML content and image data
-                // Use XMLSerializer for safe HTML extraction
-                const serializer = new XMLSerializer();
-                let html = '';
-                Array.from(el.childNodes).forEach(node => {
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        html += serializer.serializeToString(node);
-                    } else if (node.nodeType === Node.TEXT_NODE) {
-                        html += node.textContent || '';
+                            // Convert to base64 data URL
+                            if (imageFile instanceof TFile) {
+                                const arrayBuffer = await this.app.vault.readBinary(imageFile);
+                                const base64 = this.arrayBufferToBase64(arrayBuffer);
+
+                                const extension = imageFile.extension.toLowerCase();
+                                let mimeType = 'image/png';
+                                if (extension === 'jpg' || extension === 'jpeg') {
+                                    mimeType = 'image/jpeg';
+                                } else if (extension === 'gif') {
+                                    mimeType = 'image/gif';
+                                } else if (extension === 'svg') {
+                                    mimeType = 'image/svg+xml';
+                                } else if (extension === 'webp') {
+                                    mimeType = 'image/webp';
+                                } else if (extension === 'bmp') {
+                                    mimeType = 'image/bmp';
+                                }
+
+                                const dataUrl = `data:${mimeType};base64,${base64}`;
+                                imageData[src] = dataUrl;
+                            }
+                        } catch {
+                            // Ignore errors when processing individual images
+                        }
                     }
-                });
-                event.reply('file-preview', {
-                    path: filePath,
-                    content: content,
-                    html: html,
-                    imageData: imageData
-                });
-            } catch (e) {
-                console.error('Error reading file for preview:', e);
-                event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
-            }
+
+                    // Reply with rendered HTML content and image data
+                    // Use XMLSerializer for safe HTML extraction
+                    const serializer = new XMLSerializer();
+                    let html = '';
+                    Array.from(el.childNodes).forEach(node => {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            html += serializer.serializeToString(node);
+                        } else if (node.nodeType === Node.TEXT_NODE) {
+                            html += node.textContent || '';
+                        }
+                    });
+                    event.reply('file-preview', {
+                        path: filePath,
+                        content: content,
+                        html: html,
+                        imageData: imageData
+                    });
+
+                    // Clean up component
+                    component.unload();
+                } catch {
+                    event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
+                }
+            })();
         });
 
         // Simple listener for closing window

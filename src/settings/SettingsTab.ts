@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, Platform, PluginSettingTab, Setting } from 'obsidian';
 import type GlobalSearchPlugin from '../main';
 
 export class GlobalSearchSettingTab extends PluginSettingTab {
@@ -15,7 +15,9 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
 
         containerEl.empty();
 
-        containerEl.createEl('h2', {text: this.plugin.t('settingsTitle')});
+        new Setting(containerEl)
+            .setName(this.plugin.t('settingsTitle'))
+            .setHeading();
 
         new Setting(containerEl)
             .setName(this.plugin.t('settingLanguageName'))
@@ -114,7 +116,7 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
             e.stopPropagation();
 
             const modifiers: string[] = [];
-            const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+            const isMac = Platform.isMacOS;
 
             if (e.ctrlKey) modifiers.push(isMac ? 'Control' : 'Ctrl');
             if (e.altKey) modifiers.push('Alt');
