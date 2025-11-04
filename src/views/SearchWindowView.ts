@@ -1,7 +1,7 @@
 import type { Translation } from '../i18n/translations';
 
 export class SearchWindowView {
-    generateSearchHTML(isDark: boolean = true, t: Translation): string {
+    generateSearchHTML(isDark = true, t: Translation): string {
         const colors = isDark ? {
             bg: '#202020',
             bgSecondary: '#161616',

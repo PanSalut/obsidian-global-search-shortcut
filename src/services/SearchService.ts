@@ -48,7 +48,7 @@ export class SearchService {
         this.lastIndexUpdate = now;
     }
 
-    async searchInFiles(query: string, limit: number = 50): Promise<SearchResult[]> {
+    async searchInFiles(query: string, limit = 50): Promise<SearchResult[]> {
         if (!query || query.length < 1) {
             return [];
         }
