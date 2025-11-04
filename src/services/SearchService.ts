@@ -17,7 +17,11 @@ interface FileIndex {
 export class SearchService {
     private fileIndex: Fuse<FileIndex> | null = null;
     private lastIndexUpdate: number = 0;
+
+    // Constants for performance and memory management
     private readonly INDEX_UPDATE_INTERVAL = 5000; // 5 seconds
+    private readonly MAX_INDEX_SIZE = 5000; // Maximum files in index to prevent memory issues
+    private readonly SNIPPET_CONTEXT_LENGTH = 40; // Characters before/after match in snippet
 
     constructor(private app: App) {}
 
@@ -27,7 +31,11 @@ export class SearchService {
             return; // Use cached index
         }
 
-        const files = this.app.vault.getMarkdownFiles();
+        // Get all markdown files and sort by modification time (most recent first)
+        const files = this.app.vault.getMarkdownFiles()
+            .sort((a, b) => b.stat.mtime - a.stat.mtime)
+            .slice(0, this.MAX_INDEX_SIZE); // Limit index size for performance
+
         const fileData: FileIndex[] = files.map(file => ({
             path: file.path,
             name: file.name,
@@ -123,8 +131,8 @@ export class SearchService {
             lineEnd++;
         }
 
-        const start = Math.max(0, lineStart - 40);
-        const end = Math.min(content.length, lineEnd + 40);
+        const start = Math.max(0, lineStart - this.SNIPPET_CONTEXT_LENGTH);
+        const end = Math.min(content.length, lineEnd + this.SNIPPET_CONTEXT_LENGTH);
         let snippet = content.substring(start, end);
 
         snippet = snippet.replace(/\n+/g, ' ').trim();

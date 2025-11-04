@@ -23,6 +23,7 @@ yarn-error.log*
 
 # Development notes
 Claude.MD
+test.sh
 
 # Test coverage reports (if added in future)
 coverage/

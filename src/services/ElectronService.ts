@@ -97,6 +97,13 @@ export class ElectronService {
     private searchWindow: ElectronBrowserWindow | null = null;
     private registeredHotkey: string | null = null;
     private searchService: SearchService;
+    private ipcListeners: Map<string, IpcListener> = new Map();
+
+    // Constants for configuration
+    private static readonly ELECTRON_INIT_DELAY = 1000; // 1 second delay before initializing Electron
+    private static readonly SEARCH_WINDOW_WIDTH = 1100;
+    private static readonly SEARCH_WINDOW_HEIGHT = 600;
+    private static readonly BASE64_CHUNK_SIZE = 8192; // Chunk size for base64 encoding
 
     constructor(private app: App, private plugin: GlobalSearchPlugin) {
         this.searchService = new SearchService(app);
@@ -105,7 +112,7 @@ export class ElectronService {
     initialize() {
         setTimeout(() => {
             void this.initializeElectron();
-        }, 1000);
+        }, ElectronService.ELECTRON_INIT_DELAY);
     }
 
     private async initializeElectron() {
@@ -135,18 +142,15 @@ export class ElectronService {
     cleanup() {
         this.unregisterGlobalHotkey();
 
-        // Remove IPC handlers
+        // Remove IPC handlers - proper cleanup to prevent memory leaks
         if (this.electron) {
             const { ipcMain } = this.electron.remote || this.electron;
             if (ipcMain) {
-                // Remove all handlers
-                ipcMain.removeHandler('open-file');
-                ipcMain.removeHandler('search-content');
-                ipcMain.removeHandler('get-recent-files');
-                ipcMain.removeHandler('get-file-preview');
-                ipcMain.removeHandler('resize-window');
-                ipcMain.removeHandler('get-theme');
-                ipcMain.removeAllListeners('close-window');
+                // Remove all registered listeners for each channel
+                this.ipcListeners.forEach((_listener, channel) => {
+                    ipcMain.removeAllListeners(channel);
+                });
+                this.ipcListeners.clear();
             }
         }
 
@@ -232,8 +236,8 @@ export class ElectronService {
         const preloadPath = basePath ? `${basePath}/${pluginDir}/preload.js` : '';
 
         this.searchWindow = new BrowserWindow({
-            width: 1100,
-            height: 600,
+            width: ElectronService.SEARCH_WINDOW_WIDTH,
+            height: ElectronService.SEARCH_WINDOW_HEIGHT,
             frame: false,
             transparent: false,
             alwaysOnTop: true,
@@ -283,10 +287,9 @@ export class ElectronService {
         // Fallback to btoa for browser environments (shouldn't happen in Electron)
         let binary = '';
         const len = bytes.byteLength;
-        const chunkSize = 8192; // Process in chunks to avoid blocking
 
-        for (let i = 0; i < len; i += chunkSize) {
-            const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+        for (let i = 0; i < len; i += ElectronService.BASE64_CHUNK_SIZE) {
+            const chunk = bytes.subarray(i, Math.min(i + ElectronService.BASE64_CHUNK_SIZE, len));
             binary += String.fromCharCode(...chunk);
         }
 
@@ -304,9 +307,10 @@ export class ElectronService {
         }
 
         // IPC Handlers - using .on() for compatibility with ipcRenderer.send()
+        // Store listener references for proper cleanup
 
         // Handler: Open file in Obsidian
-        ipcMain.on('open-file', (_event, filePath: string) => {
+        const openFileListener: IpcListener = (_event, filePath: string) => {
             // Validate file path to prevent path traversal
             if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
                 console.error('Invalid file path');
@@ -320,17 +324,21 @@ export class ElectronService {
             if (this.searchWindow && !this.searchWindow.isDestroyed()) {
                 this.searchWindow.close();
             }
-        });
+        };
+        this.ipcListeners.set('open-file', openFileListener);
+        ipcMain.on('open-file', openFileListener);
 
         // Handler: Resize window
-        ipcMain.on('resize-window', (_event, width: number, height: number) => {
+        const resizeWindowListener: IpcListener = (_event, width: number, height: number) => {
             if (this.searchWindow && !this.searchWindow.isDestroyed()) {
                 this.searchWindow.setSize(width, height);
             }
-        });
+        };
+        this.ipcListeners.set('resize-window', resizeWindowListener);
+        ipcMain.on('resize-window', resizeWindowListener);
 
         // Handler: Search content
-        ipcMain.on('search-content', (event, query: string) => {
+        const searchContentListener: IpcListener = (event, query: string) => {
             void (async () => {
                 try {
                     const maxResults = this.plugin.settings.maxSearchResults || 50;
@@ -340,10 +348,12 @@ export class ElectronService {
                     event.reply('search-results', []);
                 }
             })();
-        });
+        };
+        this.ipcListeners.set('search-content', searchContentListener);
+        ipcMain.on('search-content', searchContentListener);
 
         // Handler: Get recent files
-        ipcMain.on('get-recent-files', (event) => {
+        const getRecentFilesListener: IpcListener = (event) => {
             try {
                 const recentPaths = this.app.workspace.getLastOpenFiles();
                 const recentFiles = [];
@@ -364,10 +374,12 @@ export class ElectronService {
             } catch {
                 event.reply('recent-files', []);
             }
-        });
+        };
+        this.ipcListeners.set('get-recent-files', getRecentFilesListener);
+        ipcMain.on('get-recent-files', getRecentFilesListener);
 
         // Handler: Get file preview with images
-        ipcMain.on('get-file-preview', (event, filePath: string) => {
+        const getFilePreviewListener: IpcListener = (event, filePath: string) => {
             void (async () => {
                 // Validate file path
                 if (!filePath || typeof filePath !== 'string' || filePath.includes('..')) {
@@ -490,13 +502,17 @@ export class ElectronService {
                     event.reply('file-preview', { path: filePath, content: '', html: '', imageData: {} });
                 }
             })();
-        });
+        };
+        this.ipcListeners.set('get-file-preview', getFilePreviewListener);
+        ipcMain.on('get-file-preview', getFilePreviewListener);
 
         // Simple listener for closing window
-        ipcMain.on('close-window', () => {
+        const closeWindowListener: IpcListener = () => {
             if (this.searchWindow && !this.searchWindow.isDestroyed()) {
                 this.searchWindow.close();
             }
-        });
+        };
+        this.ipcListeners.set('close-window', closeWindowListener);
+        ipcMain.on('close-window', closeWindowListener);
     }
 }
