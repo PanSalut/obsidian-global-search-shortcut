@@ -78,6 +78,7 @@ type IpcListener = (event: ElectronIpcMainEvent, ...args: IpcMessageArgs[]) => v
 
 interface ElectronIpcMain {
     on(channel: string, listener: IpcListener): void;
+    removeListener(channel: string, listener: IpcListener): void;
     removeHandler(channel: string): void;
     removeAllListeners(channel: string): void;
 }
@@ -119,14 +120,14 @@ export class ElectronService {
     private registeredHotkey: string | null = null;
     private searchService: SearchService;
     private ipcListeners: Map<string, IpcListener> = new Map();
-    private lastSearchTime: number = 0;
+    private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Constants for configuration
     private static readonly ELECTRON_INIT_DELAY = 1000; // 1 second delay before initializing Electron
     private static readonly SEARCH_WINDOW_WIDTH = 1100;
     private static readonly SEARCH_WINDOW_HEIGHT = 600;
     private static readonly BASE64_CHUNK_SIZE = 8192; // Chunk size for base64 encoding
-    private static readonly SEARCH_RATE_LIMIT_MS = 100; // Minimum time between search requests (100ms)
+    private static readonly SEARCH_DEBOUNCE_MS = 200; // Wait 200ms after user stops typing
 
     constructor(private app: App, private plugin: GlobalSearchPlugin) {
         this.searchService = new SearchService(app);
@@ -169,9 +170,9 @@ export class ElectronService {
         if (this.electron) {
             const { ipcMain } = this.electron.remote || this.electron;
             if (ipcMain) {
-                // Remove all registered listeners for each channel
-                this.ipcListeners.forEach((_listener, channel) => {
-                    ipcMain.removeAllListeners(channel);
+                // Remove only our registered listeners (not all listeners on the channel)
+                this.ipcListeners.forEach((listener, channel) => {
+                    ipcMain.removeListener(channel, listener);
                 });
                 this.ipcListeners.clear();
             }
@@ -381,24 +382,25 @@ export class ElectronService {
         this.ipcListeners.set('resize-window', resizeWindowListener);
         ipcMain.on('resize-window', resizeWindowListener);
 
-        // Handler: Search content with rate limiting
+        // Handler: Search content with debouncing for better UX
         const searchContentListener: IpcListener = (event, query: string) => {
-            // Rate limiting: prevent spam/DOS attacks
-            const now = Date.now();
-            if (now - this.lastSearchTime < ElectronService.SEARCH_RATE_LIMIT_MS) {
-                return; // Silently ignore rapid requests
+            // Clear previous timer to debounce rapid keystrokes
+            if (this.searchDebounceTimer) {
+                clearTimeout(this.searchDebounceTimer);
             }
-            this.lastSearchTime = now;
 
-            void (async () => {
-                try {
-                    const maxResults = this.plugin.settings.maxSearchResults || 50;
-                    const results = await this.searchService.searchInFiles(query, maxResults);
-                    event.reply('search-results', results);
-                } catch {
-                    event.reply('search-results', []);
-                }
-            })();
+            // Wait for user to stop typing before executing search
+            this.searchDebounceTimer = setTimeout(() => {
+                void (async () => {
+                    try {
+                        const maxResults = this.plugin.settings.maxSearchResults || 50;
+                        const results = await this.searchService.searchInFiles(query, maxResults);
+                        event.reply('search-results', results);
+                    } catch {
+                        event.reply('search-results', []);
+                    }
+                })();
+            }, ElectronService.SEARCH_DEBOUNCE_MS);
         };
         this.ipcListeners.set('search-content', searchContentListener);
         ipcMain.on('search-content', searchContentListener);

@@ -74,6 +74,9 @@ export class SearchService {
         const cacheKey = `${query}:${limit}`;
         const cached = this.searchCache.get(cacheKey);
         if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+            // LRU: Move to end (mark as most recently used)
+            this.searchCache.delete(cacheKey);
+            this.searchCache.set(cacheKey, cached);
             return cached.results;
         }
 
@@ -82,6 +85,7 @@ export class SearchService {
         const results: SearchResult[] = [];
         const queryLower = query.toLowerCase();
         const foundPaths = new Set<string>();
+        const resultIndexMap = new Map<string, number>(); // Map path to index for O(1) lookup
 
         // Search by filename using Fuse.js (fast)
         if (this.fileIndex) {
@@ -91,6 +95,7 @@ export class SearchService {
                 const file = this.app.vault.getAbstractFileByPath(result.item.path);
                 if (file instanceof TFile) {
                     const score = (1 - (result.score || 0)) * 1000;
+                    const index = results.length;
                     results.push({
                         path: file.path,
                         name: file.basename,
@@ -98,6 +103,7 @@ export class SearchService {
                         snippet: ''
                     });
                     foundPaths.add(file.path);
+                    resultIndexMap.set(file.path, index); // Track index for fast lookup
                 }
             }
         }
@@ -108,7 +114,8 @@ export class SearchService {
             .sort((a, b) => b.stat.mtime - a.stat.mtime);
 
         // Process files in batches and stop when we have enough results
-        for (let i = 0; i < allFiles.length && results.length < limit; i += this.CONTENT_SEARCH_BATCH_SIZE) {
+        let shouldContinue = true;
+        for (let i = 0; i < allFiles.length && shouldContinue; i += this.CONTENT_SEARCH_BATCH_SIZE) {
             const batch = allFiles.slice(i, i + this.CONTENT_SEARCH_BATCH_SIZE);
 
             const batchPromises = batch.map(async (file) => {
@@ -125,9 +132,9 @@ export class SearchService {
 
                         // Check if file was already found by filename search
                         if (foundPaths.has(file.path)) {
-                            // Update existing result if content score is better
-                            const existingIndex = results.findIndex(r => r.path === file.path);
-                            if (existingIndex !== -1) {
+                            // Update existing result if content score is better (O(1) lookup with Map)
+                            const existingIndex = resultIndexMap.get(file.path);
+                            if (existingIndex !== undefined) {
                                 if (contentScore > results[existingIndex].score) {
                                     results[existingIndex].score = contentScore;
                                 }
@@ -157,11 +164,14 @@ export class SearchService {
             const validResults = batchResults.filter((r): r is SearchResult => r !== null);
 
             for (const result of validResults) {
+                const newIndex = results.length;
                 results.push(result);
                 foundPaths.add(result.path);
+                resultIndexMap.set(result.path, newIndex); // Track new result index
 
                 // Early exit if we have enough results
                 if (results.length >= limit) {
+                    shouldContinue = false;
                     break;
                 }
             }
@@ -178,7 +188,7 @@ export class SearchService {
             timestamp: Date.now()
         });
 
-        // Limit cache size
+        // LRU eviction: Remove least recently used (first) entry when cache is full
         if (this.searchCache.size > this.MAX_CACHE_SIZE) {
             const firstKey = this.searchCache.keys().next().value;
             if (firstKey !== undefined) {
