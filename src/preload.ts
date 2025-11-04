@@ -13,18 +13,36 @@ interface FilePreviewData {
     imageData: Record<string, string>;
 }
 
+// Type definitions for IPC message arguments
+type IpcMessageArgs = string | number | boolean | SearchResult[] | FilePreviewData;
+
 // Type definitions for minimal Electron API needed in preload
 interface IpcRendererEvent {
-    sender: unknown;
+    sender: {
+        send(channel: string, ...args: IpcMessageArgs[]): void;
+    };
 }
 
 interface IpcRenderer {
-    send(channel: string, ...args: unknown[]): void;
-    on(channel: string, listener: (event: IpcRendererEvent, ...args: unknown[]) => void): void;
+    send(channel: string, ...args: IpcMessageArgs[]): void;
+    on(channel: string, listener: (event: IpcRendererEvent, ...args: IpcMessageArgs[]) => void): void;
+}
+
+interface ElectronAPI {
+    openFile: (filePath: string) => void;
+    searchContent: (query: string) => void;
+    getRecentFiles: () => void;
+    getFilePreview: (filePath: string) => void;
+    resizeWindow: (width: number, height: number) => void;
+    closeWindow: () => void;
+    onSearchResults: (callback: (results: SearchResult[]) => void) => void;
+    onRecentFiles: (callback: (results: SearchResult[]) => void) => void;
+    onFilePreview: (callback: (data: FilePreviewData) => void) => void;
+    onResetSearch: (callback: () => void) => void;
 }
 
 interface ContextBridge {
-    exposeInMainWorld(apiKey: string, api: Record<string, unknown>): void;
+    exposeInMainWorld(apiKey: string, api: ElectronAPI): void;
 }
 
 // Dynamic import of Electron modules to avoid TypeScript errors

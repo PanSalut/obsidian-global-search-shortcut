@@ -4,7 +4,7 @@ import { SearchService } from './SearchService';
 
 // Type definitions for internal Obsidian APIs
 interface WindowWithRequire extends Window {
-    require?: (module: string) => unknown;
+    require?: NodeRequire;
 }
 
 interface PluginManifestWithDir {
@@ -16,10 +16,27 @@ interface VaultAdapterWithBasePath {
     getBasePath?: () => string;
 }
 
+// Type definitions for IPC message payloads
+type IpcMessageArgs = string | number | boolean | SearchResult[] | FilePreviewResponse | Record<string, string | number>;
+
+interface SearchResult {
+    path: string;
+    name: string;
+    score: number;
+    snippet: string;
+}
+
+interface FilePreviewResponse {
+    path: string;
+    content: string;
+    html: string;
+    imageData: Record<string, string>;
+}
+
 // Type definitions for Electron API (since we can't import directly in Obsidian plugin)
 interface ElectronBrowserWindow {
     loadURL(url: string): Promise<void>;
-    on(event: string, callback: (...args: unknown[]) => void): void;
+    on(event: 'blur' | 'closed' | 'close', callback: () => void): void;
     close(): void;
     isDestroyed(): boolean;
     setSize(width: number, height: number): void;
@@ -33,11 +50,13 @@ interface ElectronGlobalShortcut {
 }
 
 interface ElectronIpcMainEvent {
-    reply(channel: string, ...args: unknown[]): void;
+    reply(channel: string, ...args: IpcMessageArgs[]): void;
 }
 
+type IpcListener = (event: ElectronIpcMainEvent, ...args: IpcMessageArgs[]) => void;
+
 interface ElectronIpcMain {
-    on(channel: string, listener: (event: ElectronIpcMainEvent, ...args: unknown[]) => void): void;
+    on(channel: string, listener: IpcListener): void;
     removeHandler(channel: string): void;
     removeAllListeners(channel: string): void;
 }
