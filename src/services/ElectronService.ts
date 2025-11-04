@@ -34,6 +34,26 @@ interface FilePreviewResponse {
 }
 
 // Type definitions for Electron API (since we can't import directly in Obsidian plugin)
+interface HeadersReceivedDetails {
+    responseHeaders?: Record<string, string[]>;
+}
+
+interface HeadersReceivedCallback {
+    (response: { responseHeaders: Record<string, string[]> }): void;
+}
+
+interface WebRequest {
+    onHeadersReceived(listener: (details: HeadersReceivedDetails, callback: HeadersReceivedCallback) => void): void;
+}
+
+interface Session {
+    webRequest: WebRequest;
+}
+
+interface WebContents {
+    session: Session;
+}
+
 interface ElectronBrowserWindow {
     loadURL(url: string): Promise<void>;
     on(event: 'blur' | 'closed' | 'close', callback: () => void): void;
@@ -42,6 +62,7 @@ interface ElectronBrowserWindow {
     setSize(width: number, height: number): void;
     show(): void;
     focus(): void;
+    webContents: WebContents;
 }
 
 interface ElectronGlobalShortcut {
@@ -98,12 +119,14 @@ export class ElectronService {
     private registeredHotkey: string | null = null;
     private searchService: SearchService;
     private ipcListeners: Map<string, IpcListener> = new Map();
+    private lastSearchTime: number = 0;
 
     // Constants for configuration
     private static readonly ELECTRON_INIT_DELAY = 1000; // 1 second delay before initializing Electron
     private static readonly SEARCH_WINDOW_WIDTH = 1100;
     private static readonly SEARCH_WINDOW_HEIGHT = 600;
     private static readonly BASE64_CHUNK_SIZE = 8192; // Chunk size for base64 encoding
+    private static readonly SEARCH_RATE_LIMIT_MS = 100; // Minimum time between search requests (100ms)
 
     constructor(private app: App, private plugin: GlobalSearchPlugin) {
         this.searchService = new SearchService(app);
@@ -250,12 +273,33 @@ export class ElectronService {
                 preload: preloadPath,
                 contextIsolation: true,       // Isolate context for security
                 nodeIntegration: false,       // Disabled in renderer for security
-                webSecurity: false,           // Required for data: URIs and local image loading
+                webSecurity: true,            // Enable web security
                 sandbox: false,               // Required for preload script to work
             }
         });
 
         this.searchWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+        // Set Content Security Policy to allow only data: URIs and inline content
+        // This provides security while allowing base64 images
+        this.searchWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+            callback({
+                responseHeaders: {
+                    ...details.responseHeaders,
+                    'Content-Security-Policy': [
+                        "default-src 'none'; " +
+                        "script-src 'unsafe-inline'; " +
+                        "style-src 'unsafe-inline'; " +
+                        "img-src data: 'unsafe-inline'; " +
+                        "font-src data:; " +
+                        "connect-src 'none'; " +
+                        "media-src 'none'; " +
+                        "object-src 'none'; " +
+                        "frame-src 'none';"
+                    ]
+                }
+            });
+        });
 
         this.searchWindow.on('blur', () => {
             if (this.searchWindow && !this.searchWindow.isDestroyed()) {
@@ -337,8 +381,15 @@ export class ElectronService {
         this.ipcListeners.set('resize-window', resizeWindowListener);
         ipcMain.on('resize-window', resizeWindowListener);
 
-        // Handler: Search content
+        // Handler: Search content with rate limiting
         const searchContentListener: IpcListener = (event, query: string) => {
+            // Rate limiting: prevent spam/DOS attacks
+            const now = Date.now();
+            if (now - this.lastSearchTime < ElectronService.SEARCH_RATE_LIMIT_MS) {
+                return; // Silently ignore rapid requests
+            }
+            this.lastSearchTime = now;
+
             void (async () => {
                 try {
                     const maxResults = this.plugin.settings.maxSearchResults || 50;
