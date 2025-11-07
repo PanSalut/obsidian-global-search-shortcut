@@ -23,7 +23,7 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
             .setName(this.plugin.t('settingLanguageName'))
             .setDesc(this.plugin.t('settingLanguageDesc'))
             .addDropdown(dropdown => dropdown
-                .addOption('auto', 'Auto (Obsidian language)')
+                .addOption('auto', 'Auto (obsidian language)')
                 .addOption('ar', 'العربية')
                 .addOption('cs', 'Čeština')
                 .addOption('de', 'Deutsch')
