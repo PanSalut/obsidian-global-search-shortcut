@@ -48,7 +48,7 @@ interface ContextBridge {
 // Dynamic import of Electron modules to avoid TypeScript errors
 // This is the recommended approach for Obsidian plugins that use Electron APIs
 const getElectron = (): { contextBridge: ContextBridge; ipcRenderer: IpcRenderer } => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron must be loaded via require() in preload script for IPC security
     return require('electron');
 };
 

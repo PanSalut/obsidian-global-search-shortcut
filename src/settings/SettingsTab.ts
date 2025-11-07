@@ -43,10 +43,12 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
                 .addOption('zh', '简体中文')
                 .addOption('zh-TW', '繁體中文')
                 .setValue(this.plugin.settings.language)
-                .onChange(async (value) => {
-                    this.plugin.settings.language = value;
-                    await this.plugin.saveSettings();
-                    this.display();
+                .onChange((value) => {
+                    void (async () => {
+                        this.plugin.settings.language = value;
+                        await this.plugin.saveSettings();
+                        this.display();
+                    })();
                 }));
 
         const hotkeySetting = new Setting(containerEl)
@@ -60,10 +62,12 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
             textInput = text.inputEl;
             text.setPlaceholder('CommandOrControl+Shift+O')
                 .setValue(this.plugin.settings.globalHotkey)
-                .onChange(async (value) => {
-                    this.plugin.settings.globalHotkey = value;
-                    await this.plugin.saveSettings();
-                    this.plugin.registerGlobalHotkey();
+                .onChange((value) => {
+                    void (async () => {
+                        this.plugin.settings.globalHotkey = value;
+                        await this.plugin.saveSettings();
+                        this.plugin.registerGlobalHotkey();
+                    })();
                 });
         });
 
@@ -93,12 +97,14 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
             .addText(text => text
                 .setPlaceholder('50')
                 .setValue(String(this.plugin.settings.maxSearchResults))
-                .onChange(async (value) => {
-                    const num = parseInt(value);
-                    if (!isNaN(num) && num >= 1 && num <= 200) {
-                        this.plugin.settings.maxSearchResults = num;
-                        await this.plugin.saveSettings();
-                    }
+                .onChange((value) => {
+                    void (async () => {
+                        const num = parseInt(value);
+                        if (!isNaN(num) && num >= 1 && num <= 200) {
+                            this.plugin.settings.maxSearchResults = num;
+                            await this.plugin.saveSettings();
+                        }
+                    })();
                 }));
     }
 
@@ -111,7 +117,7 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
         inputEl.value = this.plugin.t('pressKeyCombination');
         inputEl.focus();
 
-        const handler = async (e: KeyboardEvent) => {
+        const handler = (e: KeyboardEvent) => {
             e.preventDefault();
             e.stopPropagation();
 
@@ -137,10 +143,11 @@ export class GlobalSearchSettingTab extends PluginSettingTab {
 
                 inputEl.value = normalizedHotkey;
                 this.plugin.settings.globalHotkey = normalizedHotkey;
-                await this.plugin.saveSettings();
-                this.plugin.registerGlobalHotkey();
-
-                new Notice(this.plugin.t('hotkeyRecorded', normalizedHotkey));
+                void (async () => {
+                    await this.plugin.saveSettings();
+                    this.plugin.registerGlobalHotkey();
+                    new Notice(this.plugin.t('hotkeyRecorded', normalizedHotkey));
+                })();
             }
 
             this.stopRecording(inputEl, buttonEl, handler);

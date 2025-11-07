@@ -24,7 +24,7 @@ export class NoteSearchModal extends FuzzySuggestModal<TFile> {
     }
 
     onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent): void {
-        this.openInNewWindow(file);
+        void this.openInNewWindow(file);
     }
 
     async openInNewWindow(file: TFile) {

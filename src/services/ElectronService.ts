@@ -4,7 +4,7 @@ import { SearchService } from './SearchService';
 
 // Type definitions for internal Obsidian APIs
 interface WindowWithRequire extends Window {
-    require?: NodeRequire;
+    require?: NodeJS.Require;
 }
 
 interface PluginManifestWithDir {
@@ -142,13 +142,8 @@ export class ElectronService {
     private async initializeElectron() {
         try {
             const windowWithRequire = window as WindowWithRequire;
-            // Dynamic import for Electron API (required for Obsidian plugin security)
-            const electron = await (async () => {
-                if (windowWithRequire.require) {
-                    return windowWithRequire.require('electron') as ElectronWithRemote;
-                }
-                return undefined;
-            })();
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron must be loaded via require() in Obsidian runtime environment for proper integration
+            const electron = windowWithRequire.require ? windowWithRequire.require('electron') as ElectronWithRemote : undefined;
 
             if (electron) {
                 this.electron = electron;
