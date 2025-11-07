@@ -1,0 +1,23 @@
+SENTENCE CASE FIXES NEEDED:
+
+GERMAN (de):
+Line 88: 'Globale Suche öffnen' → 'Globale suche öffnen'
+Line 91: 'Wählen Sie eine Notiz für die Vorschau' → 'Wählen sie eine notiz für die vorschau'
+Line 94: 'Kürzlich angesehen' → 'Kürzlich angesehen' ✓
+Line 95: 'Tippen Sie, um Notizen zu suchen...' → 'Tippen sie, um notizen zu suchen...'
+Line 99: 'Fehler beim Laden des global search Plugins' → 'Fehler beim laden des global search plugins'
+Line 100: 'Globale Tastenkombination {0} registriert' → 'Globale tastenkombination {0} registriert'
+Line 101: 'global search Einstellungen' → 'Global search einstellungen'
+Line 102: 'Globale Tastenkombination' → 'Globale tastenkombination'
+Line 103: 'Systemweite Tastenkombination zum Aufrufen der Suche (z.B. CommandOrControl+Shift+O)' → 'Systemweite tastenkombination zum aufrufen der suche (z.B. CommandOrControl+Shift+O)'
+Line 104: 'Beispiele: CommandOrControl+Shift+O, Alt+Space, CommandOrControl+Alt+N' → 'Beispiele: CommandOrControl+Shift+O, Alt+Space, CommandOrControl+Alt+N' ✓
+Line 105: 'Hinweis: CommandOrControl verwendet automatisch Cmd auf macOS und Ctrl auf Windows/Linux' → 'Hinweis: CommandOrControl verwendet automatisch cmd auf macOS und ctrl auf Windows/Linux'
+Line 107: 'Wählen Sie die Sprache der Benutzeroberfläche' → 'Wählen sie die sprache der benutzeroberfläche'
+Line 108: 'Maximale Suchergebnisse' → 'Maximale suchergebnisse'
+Line 109: 'Maximale Anzahl der anzuzeigenden Suchergebnisse (1-200)' → 'Maximale anzahl der anzuzeigenden suchergebnisse (1-200)'
+Line 110: 'Tastenkombination aufzeichnen' → 'Tastenkombination aufzeichnen' ✓
+Line 111: 'Aufnahme... Drücken Sie Ihre Tastenkombination' → 'Aufnahme... Drücken sie ihre tastenkombination'
+Line 112: 'Drücken Sie eine beliebige Tastenkombination' → 'Drücken sie eine beliebige tastenkombination'
+Line 113: 'Tastenkombination aufgezeichnet: {0}' → 'Tastenkombination aufgezeichnet: {0}' ✓
+
+Similar fixes needed in ALL other languages - any word after the first that has capital letter should be lowercase.
